@@ -53,9 +53,9 @@ ULTIMO = {}
 # TODO: los mismos datos del miniproyecto 1: copie la serie a datos/ con su
 # ficha en datos/README.md y cambie estos cuatro datos. La serie de ejemplo
 # solo sirve para probar que el guion corre.
-ARCHIVO = "datos/air_passengers.csv"
-FECHA = "Month"
-VALOR = "#Passengers"
+ARCHIVO = "datos/SeriesReport-Not Seasonally Adjusted Sales - Monthly (Millions of Dollars).csv"
+FECHA = "Period"
+VALOR = "Value"
 PERIODO = 12
 
 
@@ -64,22 +64,80 @@ def preparar(serie):
 
     Debe devolver una serie sin NaN.
     """
+    serie = serie.dropna()
     return serie
 
+def exogenas(serie):
+
+    inicio = serie.index.min()
+    fin = serie.index.max() + pd.DateOffset(months=12)
+
+    fechas = pd.date_range(
+        start=inicio,
+        end=fin,
+        freq="MS"
+    )
+
+    dias_habiles = []
+
+    for fecha in fechas:
+
+        fin_mes = fecha + pd.offsets.MonthEnd(0)
+
+        cantidad = len(
+            pd.date_range(
+                start=fecha,
+                end=fin_mes,
+                freq="B"
+            )
+        )
+
+        dias_habiles.append(cantidad)
+
+    return pd.DataFrame(
+        {"dias_habiles": dias_habiles},
+        index=fechas
+    )
 
 def modelo_clasico(serie):
     """TODO: devuelva la función modelo(entrenamiento, h) del mejor modelo del
     miniproyecto 1, con los mismos órdenes y la misma transformación.
-
+    
     Copie aquí lo que esa función necesite, como sus variables exógenas.
     Dentro de modelo, guarde el ajuste en ULTIMO["modelo"] para que la tabla
     cuente sus parámetros.
     """
-    raise NotImplementedError("el mejor modelo del miniproyecto 1")
+
+    x = exogenas(serie)
+
+    def modelo(entrenamiento, h):
+
+        futuras = fechas_siguientes(entrenamiento, h)
+
+        x_ent = x.loc[entrenamiento.index]
+        x_fut = x.loc[futuras]
+
+        ajuste = SARIMAX(
+            entrenamiento,
+            exog=x_ent,
+            order=(1, 0, 0),
+            seasonal_order=(1, 1, 1, 12),
+            enforce_stationarity=True,
+            enforce_invertibility=True
+        ).fit(disp=False)
+
+        ULTIMO["modelo"] = ajuste
+
+        return ajuste.forecast(
+            steps=h,
+            exog=x_fut
+        )
+
+    return modelo
 
 
 # TODO: el nombre del modelo, con sus órdenes, como aparece en la tabla.
-NOMBRE_CLASICO = "SARIMA del miniproyecto 1"
+NOMBRE_CLASICO = "SARIMAX(1,0,0)(1,1,1,12) + exogenas"
 
 
 def graficar_serie(serie):
@@ -98,7 +156,7 @@ def graficar_serie(serie):
 # ============================================================
 # Lo que aprende cada modelo: "nivel" es la serie tal cual; "dif12" es la
 # diferencia con el mismo mes del año anterior.
-OBJETIVO = "nivel"     # TODO: elija "nivel" o "dif12" y justifíquelo
+OBJETIVO = "dif12"     # TODO: elija "nivel" o "dif12" y justifíquelo
 REZAGOS = 12
 
 
@@ -118,7 +176,28 @@ def tabla_supervisada(z):
     Ninguna columna de la fila t puede usar z(t): los rezagos con shift(k) y
     las ventanas sobre la serie ya corrida un mes.
     """
-    raise NotImplementedError("tabla supervisada")
+
+    X = pd.DataFrame(index=z.index)
+
+    for k in range(1, 13):
+
+        X[f"rezago_{k}"] = z.shift(k)
+
+    X["mes"] = z.index.month
+
+    X["media_3"] = (
+        z.shift(1)
+            .rolling(3)
+            .mean()
+    )
+
+    X["media_12"] = (
+        z.shift(1)
+            .rolling(12)
+            .mean()
+    )
+
+    return X
 
 
 def comprobar_sin_fuga(serie):
@@ -127,7 +206,27 @@ def comprobar_sin_fuga(serie):
     Por ejemplo, cambie el valor de cada mes y verifique que su fila de la
     tabla no cambie. Si una fila cambia, lance AssertionError.
     """
-    raise NotImplementedError("prueba de que no hay fuga")
+
+    z = objetivo(serie)
+
+    original = tabla_supervisada(z)
+
+    for fecha in z.index[20:]:
+
+        z2 = z.copy()
+
+        z2.loc[fecha] += 999999
+
+        modificada = tabla_supervisada(z2)
+
+        if not original.loc[fecha].equals(
+            modificada.loc[fecha]
+        ):
+            raise AssertionError(
+                f"Fuga detectada en {fecha}"
+            )
+
+    print("OK: sin fuga")
 
 
 def filas_completas(y):
@@ -145,8 +244,31 @@ def recursivo(ajustado, y, h):
     a_nivel y escríbalo como si fuera dato antes de pasar al mes siguiente.
     Devuelva los h pronósticos.
     """
-    raise NotImplementedError("pronóstico recursivo")
+    serie = y.copy()
 
+    pronosticos = []
+
+    for _ in range(h):
+
+        siguiente = serie.index[-1] + pd.DateOffset(months=1)
+
+        serie.loc[siguiente] = np.nan
+
+        z = objetivo(serie)
+
+        X = tabla_supervisada(z)
+
+        fila_x = X.iloc[[-1]]
+
+        z_hat = ajustado.predict(fila_x)[0]
+
+        y_hat = a_nivel(serie.iloc[:-1], z_hat)
+
+        serie.iloc[-1] = y_hat
+
+        pronosticos.append(y_hat)
+
+    return np.array(pronosticos)
 
 def con_tabla(fabrica):
     """Modelo para el backtest: arma la tabla con el entrenamiento del origen,
@@ -187,10 +309,10 @@ def xgboost(max_depth=3, learning_rate=0.1):
 
 # TODO: complete cada rejilla con dos a cuatro valores por hiperparámetro.
 REJILLAS = {
-    "KNN": (knn, {"n_neighbors": [5]}),
-    "SVR": (svr, {"C": [1.0], "epsilon": [0.1]}),
-    "Random Forest": (bosque, {"max_depth": [None], "min_samples_leaf": [1]}),
-    "XGBoost": (xgboost, {"max_depth": [3], "learning_rate": [0.1]}),
+    "KNN": (knn, {"n_neighbors":[3,5,7,9]}),
+    "SVR": (svr, {"C":[0.1,1,10],  "epsilon":[0.01,0.1,0.3]}),
+    "Random Forest": (bosque, {"max_depth":[3,5,None], "min_samples_leaf":[1,2,5]}),
+    "XGBoost": (xgboost, {"max_depth":[2,3,5], "learning_rate":[0.01,0.05,0.1]}),
 }
 
 
@@ -209,15 +331,99 @@ def ajustar_hiperparametros(serie):
     validación. Devuelva {nombre: {hiperparámetro: valor}}; sin_prefijo
     quita el prefijo.
     """
-    raise NotImplementedError("hiperparámetros con validación temporal")
+    entrenamiento = serie.iloc[:-N_PRUEBA]
+
+    X, z = filas_completas(entrenamiento)
+
+    tscv = TimeSeriesSplit(n_splits=3)
+
+    elegidos = {}
+
+    for nombre, (fabrica, rejilla) in REJILLAS.items():
+
+        modelo = fabrica()
+
+        parametros = rejilla.copy()
+
+        if nombre == "KNN":
+            parametros = {
+                f"kneighborsregressor__{k}": v
+                for k, v in rejilla.items()
+            }
+
+        if nombre == "SVR":
+            parametros = {
+                f"svr__{k}": v
+                for k, v in rejilla.items()
+            }
+
+        grid = GridSearchCV(
+            modelo,
+            parametros,
+            scoring="neg_root_mean_squared_error",
+            cv=tscv
+        )
+
+        grid.fit(X, z)
+
+        print(
+            nombre,
+            grid.best_params_,
+            -grid.best_score_
+        )
+
+        elegidos[nombre] = sin_prefijo(
+            grid.best_params_
+        )
+
+    return elegidos
 
 
 def graficar_importancia(serie, elegidos):
     """TODO: importancia de las variables de Random Forest y XGBoost
     (feature_importances_), ajustados con lo elegido; guarde
     figuras/importancia.png."""
-    raise NotImplementedError("importancia de variables")
 
+    X, z = filas_completas(
+        serie.iloc[:-N_PRUEBA]
+    )
+
+    figura, ejes = plt.subplots(
+        2,
+        1,
+        figsize=(10,8)
+    )
+
+    for eje, nombre in zip(
+        ejes,
+        ["Random Forest","XGBoost"]
+    ):
+
+        fabrica = REJILLAS[nombre][0]
+
+        modelo = fabrica(
+            **elegidos[nombre]
+        )
+
+        modelo.fit(X, z)
+
+        imp = pd.Series(
+            modelo.feature_importances_,
+            index=X.columns
+        ).sort_values()
+
+        imp.plot.barh(ax=eje)
+
+        eje.set_title(nombre)
+
+    plt.tight_layout()
+
+    plt.savefig(
+        FIGURAS / "importancia.png",
+        dpi=120
+    )
+
+    plt.close()
 
 # ============================================================
 # 4. Aprendizaje profundo en PyTorch
@@ -290,15 +496,29 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.capas(x)
 
-
 class LSTM(nn.Module):
     """TODO: nn.LSTM de una capa sobre la secuencia (lote, 12, 1) y una capa
     lineal que lee el último estado oculto."""
-
     def __init__(self, ocultas=16):
-        super().__init__()
-        raise NotImplementedError("LSTM")
 
+        super().__init__()
+
+        self.lstm = nn.LSTM(
+            input_size=1,
+            hidden_size=ocultas,
+            batch_first=True
+        )
+
+        self.salida = nn.Linear(
+            ocultas,
+            1
+        )
+
+    def forward(self, x):
+
+        _, (h, _) = self.lstm(x)
+
+        return self.salida(h[-1])
 
 # TODO: la tercera red, a elección: Conv1D, un híbrido (el clásico más una
 # red sobre sus residuos) o un Transformer pequeño. Una Conv1D o un
@@ -306,12 +526,43 @@ class LSTM(nn.Module):
 # híbrido no pasa por con_tabla: escriba su propia función
 # modelo(entrenamiento, h) y agregue su fila en main.
 
+class Conv1D(nn.Module):
+
+    def __init__(self, ocultas=16):
+
+        super().__init__()
+
+        self.conv = nn.Conv1d(
+            1,
+            ocultas,
+            kernel_size=3
+        )
+
+        self.relu = nn.ReLU()
+
+        self.fc = nn.Linear(
+            ocultas * 10,
+            1
+        )
+
+    def forward(self, x):
+
+        x = x.transpose(1,2)
+
+        x = self.relu(
+            self.conv(x)
+        )
+
+        x = x.flatten(1)
+
+        return self.fc(x)
 
 # Las candidatas: nombre, cómo se construye y si recibe la secuencia.
 # TODO: agregue la LSTM, con secuencia=True, y la tercera red.
 CANDIDATAS = {
     "MLP (8 ocultas)": (lambda n: MLP(n, 8), False),
     "MLP (32 ocultas)": (lambda n: MLP(n, 32), False),
+    "Conv1D (16 filtros)": (lambda n: Conv1D(16),True),
 }
 
 
@@ -325,7 +576,64 @@ def validar_redes(serie):
     MLP de menor pérdida de validación y devuelva {nombre: épocas}, con las
     épocas de menor pérdida de validación de cada red.
     """
-    raise NotImplementedError("validación de las redes")
+    entrenamiento = serie.iloc[:-N_PRUEBA]
+
+    X, z = filas_completas(entrenamiento)
+
+    X_ent = X.iloc[:-12]
+    X_val = X.iloc[-12:]
+
+    z_ent = z.iloc[:-12]
+    z_val = z.iloc[-12:]
+
+    resultados = {}
+
+    figura, eje = plt.subplots(
+        figsize=(10,6)
+    )
+
+    for nombre in CANDIDATAS:
+
+        red_modelo = Red(
+            CANDIDATAS[nombre][0],
+            CANDIDATAS[nombre][1],
+            epocas=100
+        )
+
+        red_modelo.fit(
+            X_ent,
+            z_ent,
+            X_val,
+            z_val
+        )
+
+        perdidas = np.array(
+            red_modelo.perdidas
+        )
+
+        mejor_epoca = (
+            perdidas[:,1].argmin() + 1
+        )
+
+        resultados[nombre] = mejor_epoca
+
+        eje.plot(
+            perdidas[:,1],
+            label=nombre
+        )
+
+    eje.legend()
+
+    plt.tight_layout()
+
+    plt.savefig(
+        FIGURAS / "perdida.png",
+        dpi=120
+    )
+
+    plt.close()
+
+    return resultados
 
 
 def red(nombre, epocas, semilla=SEMILLA):
@@ -334,14 +642,58 @@ def red(nombre, epocas, semilla=SEMILLA):
     return lambda: Red(construir, secuencia, epocas, semilla)
 
 
-def repetir_con_semillas(serie, nombre, epocas):
+def repetir_con_semillas(serie,nombre,epocas):
     """TODO: la mejor red con cinco semillas, cada una por el backtest.
 
     Use con_tabla(red(nombre, epocas, semilla)). Guarde resultados/semillas.csv
     con una fila por semilla e imprima la media y la desviación del RMSE.
     """
-    raise NotImplementedError("cinco semillas")
+    semillas = [
+        2026,
+        2027,
+        2028,
+        2029,
+        2030
+    ]
 
+    filas = []
+
+    for semilla in semillas:
+
+        modelo = con_tabla(
+            red(
+                nombre,
+                epocas,
+                semilla
+            )
+        )
+
+        _, promedio = backtest(
+            serie,
+            modelo
+        )
+
+        filas.append({
+            "semilla": semilla,
+            "RMSE": promedio["RMSE"]
+        })
+
+    tabla = pd.DataFrame(filas)
+
+    tabla.to_csv(
+        RESULTADOS / "semillas.csv",
+        index=False
+    )
+
+    print(
+        "RMSE media:",
+        tabla["RMSE"].mean()
+    )
+
+    print(
+        "RMSE desviación:",
+        tabla["RMSE"].std()
+    )
 
 # ============================================================
 # 5. La tabla y la elección
