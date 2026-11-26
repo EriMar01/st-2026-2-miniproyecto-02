@@ -211,11 +211,20 @@ def comprobar_sin_fuga(serie):
 
     original = tabla_supervisada(z)
 
-    for fecha in z.index[20:]:
+    for fecha in z.dropna().index:
 
         z2 = z.copy()
 
         z2.loc[fecha] += 999999
+
+        modificada = tabla_supervisada(z2)
+
+        if not original.loc[fecha].equals(
+            modificada.loc[fecha]
+        ):
+            raise AssertionError(
+                f"Fuga detectada en {fecha}"
+            )
 
         modificada = tabla_supervisada(z2)
 
@@ -258,7 +267,12 @@ def recursivo(ajustado, y, h):
 
         X = tabla_supervisada(z)
 
-        fila_x = X.iloc[[-1]]
+        fila_x = X.tail(1)
+
+        if fila_x.isna().any().any():
+            raise ValueError(
+                "La fila recursiva contiene NaN"
+            )
 
         z_hat = ajustado.predict(fila_x)[0]
 
@@ -562,6 +576,7 @@ class Conv1D(nn.Module):
 CANDIDATAS = {
     "MLP (8 ocultas)": (lambda n: MLP(n, 8), False),
     "MLP (32 ocultas)": (lambda n: MLP(n, 32), False),
+    "LSTM (16 ocultas)": (lambda n: LSTM(16),True),
     "Conv1D (16 filtros)": (lambda n: Conv1D(16),True),
 }
 
