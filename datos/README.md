@@ -7,6 +7,6 @@
 | Fuente | U.S. Census Bureau. Dataset "USA Monthly Retail Sales" (https://www.kaggle.com/datasets/landlord/usa-monthly-retail-trade/data) |
 | Licencia | CC0: Public Domain |
 | Frecuencia | mensual |
-| Periodo | Enero de 1992}} a diciembre de 2020 (348 observaciones, 7 valores faltantes al final de la serie) |
+| Periodo | Enero de 1992 a diciembre de 2020 (348 observaciones, 7 valores faltantes al final de la serie) |
 | Columna de fecha | Period |
 | Columna que se pronostica | Value |

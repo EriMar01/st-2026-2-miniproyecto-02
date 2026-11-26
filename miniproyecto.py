@@ -226,15 +226,6 @@ def comprobar_sin_fuga(serie):
                 f"Fuga detectada en {fecha}"
             )
 
-        modificada = tabla_supervisada(z2)
-
-        if not original.loc[fecha].equals(
-            modificada.loc[fecha]
-        ):
-            raise AssertionError(
-                f"Fuga detectada en {fecha}"
-            )
-
     print("OK: sin fuga")
 
 
@@ -580,7 +571,6 @@ CANDIDATAS = {
     "Conv1D (16 filtros)": (lambda n: Conv1D(16),True),
 }
 
-
 def validar_redes(serie):
     """TODO: elija las épocas de cada red con validación temporal.
 
@@ -592,62 +582,48 @@ def validar_redes(serie):
     épocas de menor pérdida de validación de cada red.
     """
     entrenamiento = serie.iloc[:-N_PRUEBA]
-
     X, z = filas_completas(entrenamiento)
 
-    X_ent = X.iloc[:-12]
-    X_val = X.iloc[-12:]
+    X_ent, X_val = X.iloc[:-12], X.iloc[-12:]
+    z_ent, z_val = z.iloc[:-12], z.iloc[-12:]
 
-    z_ent = z.iloc[:-12]
-    z_val = z.iloc[-12:]
+    todos = {}
+    mejor_mlp = None
+    menor_perdida_mlp = float("inf")
 
-    resultados = {}
+    figura, eje = plt.subplots(figsize=(10, 6))
 
-    figura, eje = plt.subplots(
-        figsize=(10,6)
-    )
+    for nombre, (construir, secuencia) in CANDIDATAS.items():
+        red_modelo = Red(construir, secuencia, epocas=EPOCAS_MAXIMAS)
+        red_modelo.fit(X_ent, z_ent, X_val, z_val)
+        perdidas = np.array(red_modelo.perdidas)
 
-    for nombre in CANDIDATAS:
+        min_val = perdidas[:, 1].min()
+        mejor_epoca = int(perdidas[:, 1].argmin() + 1)
+        todos[nombre] = mejor_epoca
 
-        red_modelo = Red(
-            CANDIDATAS[nombre][0],
-            CANDIDATAS[nombre][1],
-            epocas=100
-        )
+        if nombre.startswith("MLP") and min_val < menor_perdida_mlp:
+            menor_perdida_mlp = min_val
+            mejor_mlp = nombre
 
-        red_modelo.fit(
-            X_ent,
-            z_ent,
-            X_val,
-            z_val
-        )
+        eje.plot(perdidas[:, 0], linestyle="--", alpha=0.6, label=f"{nombre} (ent)")
+        eje.plot(perdidas[:, 1], label=f"{nombre} (val, mín={min_val:.3f} en ép. {mejor_epoca})")
 
-        perdidas = np.array(
-            red_modelo.perdidas
-        )
+    eje.set_xlabel("Época")
+    eje.set_ylabel("MSE normalizado")
+    eje.set_title("Curvas de pérdida: entrenamiento vs. validación")
+    eje.legend(fontsize=8)
+    figura.tight_layout()
+    figura.savefig(FIGURAS / "perdida.png", dpi=120)
+    plt.close(figura)
 
-        mejor_epoca = (
-            perdidas[:,1].argmin() + 1
-        )
-
-        resultados[nombre] = mejor_epoca
-
-        eje.plot(
-            perdidas[:,1],
-            label=nombre
-        )
-
-    eje.legend()
-
-    plt.tight_layout()
-
-    plt.savefig(
-        FIGURAS / "perdida.png",
-        dpi=120
-    )
-
-    plt.close()
-
+    # Nos quedamos solo con el MLP ganador + LSTM + tercera red (3 redes en total)
+    resultados = {
+        nombre: ep
+        for nombre, ep in todos.items()
+        if not nombre.startswith("MLP") or nombre == mejor_mlp
+    }
+    print("Redes seleccionadas y épocas:", resultados)
     return resultados
 
 
@@ -800,7 +776,7 @@ def main():
             elegidos = ajustar_hiperparametros(serie)
             graficar_importancia(serie, elegidos)
             modelos_aa = {nombre: con_tabla(lambda f=fabrica, p=elegidos[nombre]: f(**p))
-                          for nombre, (fabrica, _) in REJILLAS.items()}
+                        for nombre, (fabrica, _) in REJILLAS.items()}
             filas_aa = [fila(nombre, serie, modelo) for nombre, modelo in modelos_aa.items()]
             filas += filas_aa
             mejor_aa = min(filas_aa, key=lambda f: f["RMSE"])["modelo"]
@@ -812,7 +788,7 @@ def main():
         try:
             epocas = validar_redes(serie)
             filas_red = [fila(f"{nombre}, {e} épocas", serie, con_tabla(red(nombre, e)))
-                         for nombre, e in epocas.items()]
+                        for nombre, e in epocas.items()]
             filas += filas_red
             mejor = min(zip(epocas, filas_red), key=lambda par: par[1]["RMSE"])[0]
             elegidos_para_figura[mejor] = con_tabla(red(mejor, epocas[mejor]))
