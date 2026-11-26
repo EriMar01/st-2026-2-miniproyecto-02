@@ -42,9 +42,11 @@ La selección de hiperparámetros se realizó mediante `GridSearchCV` con valida
 
 ![Importancia de las variables](../figuras/importancia.png)
 
-En la figura de importancia de variables (`feature_importances_`), tanto Random Forest como XGBoost concentran el mayor peso en los rezagos más recientes (`rezago_1`, `rezago_2`) y en el componente estacional (`rezago_12` y el promedio móvil `media_3`), lo cual es coherente con los rezagos significativos identificados en la PACF de la serie diferenciada estacionalmente en el miniproyecto 1 [Verifica en `figuras/importancia.png` las 2 o 3 barras más largas para confirmar el orden exacto].
+
+En la figura de importancia de variables (`feature_importances_`), ambos ensambles concentran más del $70\%$ de su poder predictivo en la dinámica inmediata de corto plazo: en **Random Forest** domina **`rezago_1`** ($\approx 0.47$), seguido por **`media_3`** ($\approx 0.23$) y **`rezago_2`** ($\approx 0.06$); en **XGBoost** el orden se invierte entre las dos primeras, liderando **`media_3`** ($\approx 0.48$) seguida por **`rezago_1`** ($\approx 0.29$), mientras que los demás rezagos individuales (como `rezago_6`, `rezago_9` y `rezago_12`) aportan menos de $0.04$ cada uno y `mes` pesa apenas $\approx 0.01$ debido a que la diferenciación estacional (`dif12`) ya absorbió el ciclo mensual fijo. Este comportamiento coincide plenamente con la PACF del miniproyecto 1 y con la estructura autorregresiva de primer orden $\text{AR}(1)$ del modelo clásico seleccionado.
 
 Al evaluar los cuatro modelos en el *backtest* común de 24 meses, el ganador del grupo de aprendizaje automático es **SVR** ($\text{RMSE} = 14680.88$, $\text{MAE} = 10909.33$, $\text{MAPE} = 2.19\%$), seguido por **KNN** ($\text{RMSE} = 15165.45$, $\text{MAE} = 11319.08$, $\text{MAPE} = 2.29\%$), **Random Forest** ($\text{RMSE} = 15863.41$, $\text{MAE} = 12155.16$, $\text{MAPE} = 2.45\%$) y **XGBoost** ($\text{RMSE} = 15966.92$, $\text{MAE} = 12183.37$, $\text{MAPE} = 2.45\%$).
+
 
 ## 4. Aprendizaje profundo
 
